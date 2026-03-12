@@ -11,12 +11,13 @@ def worker_loop(worker_id, num_workers, queue, result_queue):
             break
 
         # item is now a list of rows (batch), not a single row
-        for mmsi, timestamp, lat, lon, draught in item:
+        for mmsi, timestamp, lat, lon, sog, draught in item:
             vessels[mmsi].append({
                 "MMSI": mmsi,
                 "Latitude": lat,
                 "Longitude": lon,
                 "Draught": draught,
+                "SOG": sog,
                 "timestamp_parsed": fast_parse(timestamp)
             })
 
