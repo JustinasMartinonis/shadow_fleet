@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 TOTAL_ROWS = 1_000_000      # test run for quicker results - used only for progress tracking
 PROGRESS_INTERVAL = 250_000  # progress update frequency - used only for progress tracking
 CHUNK_SIZE = 50000         # rows per batch sent to each worker
-DIRTY_MMSI = {"000000000","111111111","123456789"}  # ignore invalid vessels (might need to add more codes or run a loop to fill array with values)
+VALID_CLASSES = {"Class A", "Class B"} # just include Class A and Class B ships (excluding Base Stations, AtoN (Navigation aids), Man Overboard Devices, Search and Rescue Transponders, SAR Airborne)
+DIRTY_MMSI = {"000000000","111111111","123456789", "999999999"}  # ignore invalid vessels (might need to add more codes or run a loop to fill array with values)
 
 # ---------------- Main Function ----------------
 def main(file_path):
@@ -53,17 +54,32 @@ def main(file_path):
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f: # read the file and it's structure in csv format
         reader = csv.DictReader(f)
         for row in reader:
+            if row.get("Type of mobile", "").strip() not in VALID_CLASSES:
+                continue
             mmsi = row["MMSI"].strip()
             if mmsi in DIRTY_MMSI or mmsi == "":
                 continue
+            if not mmsi.isdigit() or len(mmsi) != 9:
+                continue
 
             try:
+                lat = float(row["Latitude"])
+                lon = float(row["Longitude"])
+                sog = float(row.get("SOG", 0) or 0)
+                draft = float(row.get("Draught", 0) or 0)
+                
+                # Ensure latitude/longitdue coordinates are within a legitimate range 
+                if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    continue
+                if lat == 0 and lon == 0:
+                    continue
                 batch.append((
                     mmsi,
                     row["# Timestamp"],
-                    float(row["Latitude"]),
-                    float(row["Longitude"]),
-                    float(row.get("Draught",0) or 0)
+                    lat,
+                    lon,
+                    sog,
+                    draft
                 ))
             except:
                 continue
@@ -91,11 +107,17 @@ def main(file_path):
 
     # ---- Collect worker results ----
     global_results = defaultdict(lambda: {"A":0,"B":0,"C":0,"D":0,"DFSI":0}) # getting the results and assigning scores
+    global_loitering_pairs = [] 
     for _ in workers:
         worker_result = result_queue.get()
         for mmsi, stats in worker_result.items():
-            for key in stats:
+            # Aggregate anomaly counts
+            for key in ["A","B","C","D","DFSI"]:
                 global_results[mmsi][key] += stats[key]
+
+            # Loitering vessel pairs
+            if "loitering_pairs" in stats:
+                global_loitering_pairs.extend(stats["loitering_pairs"])
 
     # ---- Join workers ----
     for p in workers: # join workers to the main thread
@@ -113,6 +135,12 @@ def main(file_path):
     print("\nTop 5 Suspicious Vessels:")
     for mmsi, stats in top5:
         print(mmsi, stats)
+
+    # Loitering vessel pairs
+    print(f"\nTotal loitering events detected: {len(global_loitering_pairs)}")
+    print("\nExample loitering vessel pairs (first 10):")
+    for pair in global_loitering_pairs[:10]:
+        print(pair)
 
     # ---- Resource summary ----
     print(f"\nPeak RAM usage: {max(ram_list):.2f} MB")
@@ -134,4 +162,5 @@ def main(file_path):
 # ---------------- Run ----------------
 if __name__ == "__main__":
     #main("test_2.csv") # test file with 1 million observations
+
     #main("aisdk-2025-12-11.csv") # full file
