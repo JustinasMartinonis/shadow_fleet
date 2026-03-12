@@ -63,6 +63,7 @@ def main(file_path):
                     row["# Timestamp"],
                     float(row["Latitude"]),
                     float(row["Longitude"]),
+                    float(row.get("SOG",0) or 0),
                     float(row.get("Draught",0) or 0)
                 ))
             except:
