@@ -18,6 +18,7 @@ def worker_loop(worker_id, num_workers, queue, result_queue):
                 "Longitude": lon,
                 "SOG": sog,
                 "Draught": draught,
+                "SOG": sog,
                 "timestamp_parsed": fast_parse(timestamp)
             })
 
