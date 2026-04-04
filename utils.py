@@ -154,8 +154,8 @@ def detect_anomalies(events):
     #         j += 1
 
 # B: Loitering Updated Version: 
-B, loitering_pairs = detect_loitering(events)
-
-DFSI = A*3 + B*4 + C*2 + D*5
-
-return {"A":A, "B":B, "C":C, "D":D, "DFSI":DFSI, "loitering_pairs": loitering_pairs}
+    B, loitering_pairs = detect_loitering(events)
+    
+    DFSI = A*3 + B*4 + C*2 + D*5
+    
+    return {"A":A, "B":B, "C":C, "D":D, "DFSI":DFSI, "loitering_pairs": loitering_pairs}
