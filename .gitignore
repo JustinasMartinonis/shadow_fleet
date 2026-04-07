@@ -1,0 +1,7 @@
+aisdk-2025-12-11.csv
+aisdk-2025-12-10.csv
+test_2.csv
+__pycache__/
+*.pyc
+*.csv
+*.png
