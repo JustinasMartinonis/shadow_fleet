@@ -1,6 +1,5 @@
 # benchmark.py
-# Measures pipeline speedup and memory usage across different worker counts,
-# generates speedup and memory graphs.
+# Measures pipeline speedup and memory usage across different worker counts and generates speedup and memory graphs
 import time
 import os
 import json
@@ -16,7 +15,7 @@ def measure_run(data_glob, workers):
     Runs the full pipeline with a given number of workers.
     Returns (elapsed_seconds, peak_ram_mb, avg_cpu_fraction).
     """
-    # Clean up previous shard/analysis outputs so each run starts fresh
+    # Cleans up previous shard/analysis outputs so each run starts fresh
     import shutil
     for d in ["partitioned", "analysis", "loitering"]:
         if os.path.exists(d):
@@ -32,7 +31,7 @@ def measure_run(data_glob, workers):
     def sample_resources():
         while not stop_flag.is_set():
             try:
-                # Measure RAM
+                # RAM
                 mem = process.memory_info().rss / (1024 * 1024)
                 children = process.children(recursive=True)
                 for c in children:
@@ -42,7 +41,7 @@ def measure_run(data_glob, workers):
                         pass
                 ram_samples.append(mem)
                 
-                # Measure CPU
+                # CPU
                 cpu_pct = psutil.cpu_percent(interval=0.5)
                 cpu_samples.append(cpu_pct)
             except Exception:
@@ -52,7 +51,6 @@ def measure_run(data_glob, workers):
     sampler.start()
 
     t0 = time.time()
-    # Explicitly pass the workers argument
     run_pipeline(data_glob=data_glob, workers=workers)
     elapsed = time.time() - t0
 
@@ -84,7 +82,6 @@ def run_benchmark(data_glob="data_arch/*.csv", worker_counts=None):
 
     for w in worker_counts:
         print(f"\n--- Running with {w} worker(s) ---")
-        # Now expecting 3 returned variables!
         elapsed, peak_ram, avg_cpu = measure_run(data_glob, w)
         times.append(elapsed)
         rams.append(peak_ram)
@@ -93,7 +90,7 @@ def run_benchmark(data_glob="data_arch/*.csv", worker_counts=None):
     baseline   = times[0]
     speedups   = [baseline / t for t in times]
 
-    # --- Speedup graph ---
+    # Speedup graph
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
     axes[0].plot(worker_counts, speedups, marker="o", color="steelblue", linewidth=2)
@@ -104,7 +101,7 @@ def run_benchmark(data_glob="data_arch/*.csv", worker_counts=None):
     axes[0].legend()
     axes[0].grid(True)
 
-    # --- Memory graph ---
+    # Memory graph
     axes[1].plot(worker_counts, rams, marker="s", color="tomato", linewidth=2)
     axes[1].set_title("Peak RAM vs Number of Workers")
     axes[1].set_xlabel("Workers")
@@ -117,7 +114,6 @@ def run_benchmark(data_glob="data_arch/*.csv", worker_counts=None):
     plt.show()
     print(f"\nBenchmark graph saved to {out_path}")
 
-    # Save raw numbers
     results = {
         "worker_counts": worker_counts,
         "times_seconds": times,
