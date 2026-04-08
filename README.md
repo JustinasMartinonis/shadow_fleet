@@ -19,7 +19,7 @@ The primary goal of this project is to identify vessels in the Baltic Sea that e
 - Anomaly B (Loitering & Transfers): Two distinct, valid MMSI numbers located within 500 meters of each other, maintaining a speed (SOG) of < 1 knot, for > 2 hours.
 - Anomaly C (Draft Changes at Sea): Vessels whose draught (depth in water) changes by more than 5% during an AIS blackout of > 2 hours (implying cargo was loaded/unloaded illegally).
 - Anomaly D (Identity Cloning / "Teleportation"): Identify instances where the same MMSI pings from two locations requiring an impossible travel speed (> 60 knots), indicating two physical ships are broadcasting the same stolen ID.
-- 
+  
 ## Features
 
 - Dirty Data Filtering: Removes invalid MMSIs, specific vessel types (tug, towing, SAR), and data outside the Baltic/North Sea region (51°N-66°N, 5°W-30°E).
