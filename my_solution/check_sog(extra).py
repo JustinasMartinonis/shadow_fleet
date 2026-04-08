@@ -2,7 +2,6 @@ import pandas as pd
 import glob
 import csv
 
-# === PLUG IN YOUR SUSPECT MMSI HERE ===
 TARGET_MMSI = "266394000" 
 
 def check_sogs():
@@ -12,7 +11,7 @@ def check_sogs():
         print("Error: all_loitering_events.csv not found.")
         return
 
-    # 1. Verify this MMSI actually got flagged in the final output
+    # Verifying this MMSI actually got flagged in the final output
     events['mmsi1'] = events['mmsi1'].astype(str).str.split('.').str[0]
     events['mmsi2'] = events['mmsi2'].astype(str).str.split('.').str[0]
     
@@ -25,7 +24,7 @@ def check_sogs():
     print(f"Confirmed: MMSI {TARGET_MMSI} was flagged {len(suspect_events)} time(s).")
     print("Scanning partitioned shards for actual SOG values... hold tight.")
     
-    # 2. Tally up every SOG value recorded for this MMSI
+    # Add up every SOG value recorded for this MMSI
     sog_tally = {}
     total_pings = 0
     
@@ -46,10 +45,7 @@ def check_sogs():
         print(f"No data found for MMSI {TARGET_MMSI} in partitioned shards.")
         return
 
-    # 3. Print the results, sorted by the most frequent speeds
     print(f"\n--- SOG Breakdown for MMSI {TARGET_MMSI} ({total_pings} total pings) ---")
-    
-    # Sort by frequency (highest count first)
     sorted_sogs = sorted(sog_tally.items(), key=lambda x: x[1], reverse=True)
     
     for sog, count in sorted_sogs:
