@@ -5,11 +5,7 @@ import csv
 import json
 import tempfile
 import shutil
-
-# Make sure imports resolve from project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-# UPDATED: is_valid_row is now _is_valid and lives in partition.py
 from parsing import fast_parse, parse_row, downsample_bucket
 from partition import _is_valid 
 from geo import haversine, time_diff_hours, implied_speed_knots
@@ -17,10 +13,6 @@ from anomalies import detect_going_dark, detect_draft_change, detect_teleportati
 from loiter import run_loiter
 from pipeline import run_pipeline
 
-
-# ------------------------------------------------------------------ #
-# Helpers
-# ------------------------------------------------------------------ #
 
 def make_point(mmsi, ts_str, lat, lon, sog=None, draught=None):
     return {
@@ -34,10 +26,6 @@ def make_point(mmsi, ts_str, lat, lon, sog=None, draught=None):
     }
 
 
-# ------------------------------------------------------------------ #
-# validation logic (formerly in parsing.py) tests
-# ------------------------------------------------------------------ #
-
 def test_fast_parse():
     result = fast_parse("10/12/2025 08:30:00")
     assert result == (2025, 12, 10, 8, 30, 0), f"Got {result}"
@@ -45,7 +33,6 @@ def test_fast_parse():
 
 
 def test_is_valid_row_rejects_dirty_mmsi():
-    # UPDATED: Now testing the _is_valid gate in partition.py
     row = {
         "MMSI": "000000000", "# Timestamp": "10/12/2025 08:00:00",
         "Type of mobile": "Class A", "Latitude": "55.0", "Longitude": "10.0",
@@ -55,7 +42,6 @@ def test_is_valid_row_rejects_dirty_mmsi():
 
 
 def test_is_valid_row_rejects_non_class_a():
-    # UPDATED: Now testing the _is_valid gate in partition.py
     row = {
         "MMSI": "123456789", "# Timestamp": "10/12/2025 08:00:00",
         "Type of mobile": "Class B", "Latitude": "55.0", "Longitude": "10.0",
@@ -77,10 +63,6 @@ def test_downsample_bucket_different_bucket():
     assert downsample_bucket(t1) != downsample_bucket(t2)
     print("PASS test_downsample_bucket_different_bucket")
 
-
-# ------------------------------------------------------------------ #
-# geo.py tests
-# ------------------------------------------------------------------ #
 
 def test_haversine_zero():
     assert haversine(55.0, 10.0, 55.0, 10.0) == 0.0
@@ -105,11 +87,6 @@ def test_implied_speed():
     speed = implied_speed_knots(1852, 1.0)  # 1 nautical mile in 1 hour = 1 knot
     assert abs(speed - 1.0) < 0.01
     print("PASS test_implied_speed")
-
-
-# ------------------------------------------------------------------ #
-# anomalies.py tests (formerly models.py)
-# ------------------------------------------------------------------ #
 
 def test_detect_going_dark_flags_gap():
     points = [
@@ -174,15 +151,10 @@ def test_build_loiter_candidates():
     print("PASS test_build_loiter_candidates")
 
 
-# ------------------------------------------------------------------ #
-# loiter.py tests
-# ------------------------------------------------------------------ #
-
 def test_loiter_cross_shard_detection():
     """
-    Two vessels loiter together by appearing at 08:00 and again at 10:05.
-    This provides a >2 hour duration (2.08 hours) to satisfy the default 
-    LOITER_MIN_HOURS without needing to modify the config.
+    Two vessels loiter together by appearing at 08:00 and again at 10:05
+    This provides a >2 hour duration to satisfy LOITER_MIN_HOURS without needing to modify the config
     """
     tmpdir = tempfile.mkdtemp()
     try:
@@ -193,7 +165,7 @@ def test_loiter_cross_shard_detection():
         grid = "(55.0, 10.0)"
         mmsis = ["111111112", "222222223"]
 
-        # START SHARD: 10th Dec 2025, 08:00:00
+        # START: 10th Dec 2025, 08:00:00
         with open(shard1_path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
@@ -204,7 +176,7 @@ def test_loiter_cross_shard_detection():
                     "timestamp_str": "10/12/2025 08:00:00", "grid_id": grid
                 })
 
-        # END SHARD: 10th Dec 2025, 10:05:00 (2 hours and 5 minutes later)
+        # END: 10th Dec 2025, 10:05:00
         with open(shard2_path, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
@@ -215,7 +187,6 @@ def test_loiter_cross_shard_detection():
                     "timestamp_str": "10/12/2025 10:05:00", "grid_id": grid
                 })
 
-        # Run the loiter detection on these two points
         b_counts = run_loiter([shard1_path, shard2_path], out_dir=tmpdir, workers=1)
 
         # 10:05 - 08:00 = 2.08 hours. 
@@ -227,10 +198,8 @@ def test_loiter_cross_shard_detection():
 
     finally:
         shutil.rmtree(tmpdir)
-# ------------------------------------------------------------------ #
-# pipeline.py integration test
-# ------------------------------------------------------------------ #
 
+# pipeline integration test 
 def test_pipeline_runs_on_minimal_csv():
     tmpdir = tempfile.mkdtemp()
     try:
