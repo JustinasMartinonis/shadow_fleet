@@ -5,11 +5,9 @@ import glob
 import csv
 from config import DATA_ARCH_GLOB
 from parsing import parse_row
-# We now import the validation gate from partition.py
 from partition import _is_valid 
 
 def generate_full_vessel_map():
-    # 1. Read the Top 5 vessels
     if not os.path.exists("top5_vessels.csv"):
         print("Error: top5_vessels.csv not found.")
         return
@@ -19,12 +17,12 @@ def generate_full_vessel_map():
         print("No vessels in top5_vessels.csv")
         return
         
-    # Standardizing the MMSI to string for comparison
+    # Standardizing the MMSI to string
     top_mmsi = str(int(top_df.iloc[0]["mmsi"]))
     dfsi_score = top_df.iloc[0]["DFSI"]
     print(f"Top Offender MMSI: {top_mmsi} (DFSI Score: {dfsi_score})")
 
-    # 2. Extract the FULL track from the raw dataset
+    # extract the full track from the raw dataset
     print(f"Scanning raw data to build the full route for {top_mmsi}...")
     all_points = []
     
@@ -34,7 +32,6 @@ def generate_full_vessel_map():
             for row in reader:
                 mmsi_val = row.get("MMSI", "").strip()
                 if mmsi_val == top_mmsi:
-                    # UPDATED: Using the new validation function name
                     if _is_valid(row):
                         parsed = parse_row(row)
                         if parsed and parsed["Latitude"] != 0 and parsed["Longitude"] != 0:
@@ -48,11 +45,10 @@ def generate_full_vessel_map():
     all_points.sort(key=lambda x: x["timestamp_parsed"])
     route_coords = [(p["Latitude"], p["Longitude"]) for p in all_points]
 
-    # 3. Create the Map centered on the vessel's first known location
+    # Create the map centered on the vessel's first known location
     start_lat, start_lon = route_coords[0]
     m = folium.Map(location=[start_lat, start_lon], zoom_start=6)
 
-    # 4. Draw the full baseline route (Solid Blue Line)
     folium.PolyLine(
         locations=route_coords,
         color="blue",
@@ -61,7 +57,6 @@ def generate_full_vessel_map():
         tooltip="Vessel's Full AIS Track"
     ).add_to(m)
 
-    # --- Journey Start/End Pins ---
     first_p = all_points[0]
     last_p = all_points[-1]
     
@@ -77,7 +72,6 @@ def generate_full_vessel_map():
         icon=folium.Icon(color="darkred", icon="stop")
     ).add_to(m)
 
-    # --- Breadcrumb Waypoints ---
     step = max(1, len(all_points) // 20)
     for i in range(step, len(all_points) - step, step):
         p = all_points[i]
@@ -90,10 +84,9 @@ def generate_full_vessel_map():
             tooltip=f"<b>Normal Sailing</b><br>Time: {p['timestamp_str']}"
         ).add_to(m)
 
-    # 5. Overlay the Anomalies
+    #  Overlay anomalies
     if os.path.exists("all_anomaly_events.csv"):
         events_df = pd.read_csv("all_anomaly_events.csv")
-        # Ensure MMSI comparison works across types
         vessel_events = events_df[events_df["mmsi"].astype(str) == top_mmsi]
 
         for _, row in vessel_events.iterrows():
@@ -105,7 +98,6 @@ def generate_full_vessel_map():
             if pd.isna(lat1) or pd.isna(lat2):
                 continue
 
-            # Determine visual style based on anomaly type
             if anomaly == 'A':
                 color, label = 'red', f"Anomaly A (Dark for {row.get('gap_hours', '?')} hrs)"
             elif anomaly == 'D':
@@ -113,19 +105,16 @@ def generate_full_vessel_map():
             else:
                 color, label = 'orange', f"Anomaly {anomaly}"
 
-            # Vanished Marker
             folium.CircleMarker(
                 location=[lat1, lon1], radius=7, color=color, fill=True, fill_color=color, fill_opacity=1,
                 tooltip=f"<b>{label} - VANISHED</b><br>Time: {ts_start}"
             ).add_to(m)
             
-            # Reappeared Marker
             folium.CircleMarker(
                 location=[lat2, lon2], radius=7, color=color, fill=True, fill_color=color, fill_opacity=1,
                 tooltip=f"<b>{label} - REAPPEARED</b><br>Time: {ts_end}"
             ).add_to(m)
 
-            # Connect the gap with a dashed line
             folium.PolyLine(
                 locations=[(lat1, lon1), (lat2, lon2)],
                 color=color,
@@ -134,7 +123,6 @@ def generate_full_vessel_map():
                 tooltip=f"{label}<br>From: {ts_start}<br>To: {ts_end}"
             ).add_to(m)
 
-    # 6. Save the interactive map
     map_filename = f"mmsi_{top_mmsi}_full_map.html"
     m.save(map_filename)
     print(f"Success! Map saved to '{map_filename}'.")
