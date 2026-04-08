@@ -3,16 +3,10 @@ import os
 import shutil
 import matplotlib.pyplot as plt
 import numpy as np
-
-# Import your project modules
 import partition
 from pipeline import run_pipeline
 
 def measure_chunk_performance(chunk_sizes, data_glob="data_arch/*.csv", worker_count=11):
-    """
-    Tests different CHUNK_SIZE values to find the I/O sweet spot.
-    Keeps worker count constant at 11 to isolate the variable.
-    """
     results_time = []
     
     print(f"=== Shadow Fleet: Chunk Optimization Test ===")
@@ -22,18 +16,14 @@ def measure_chunk_performance(chunk_sizes, data_glob="data_arch/*.csv", worker_c
     for size in chunk_sizes:
         print(f"--- STARTING TEST: CHUNK_SIZE = {size:,} ---")
         
-        # 1. CLEANUP: Remove old shards and analysis to ensure a fresh start
         for d in ["partitioned", "analysis", "loitering"]:
             if os.path.exists(d):
                 shutil.rmtree(d)
 
-        # 2. OVERRIDE CONFIG: Set the size directly in the partition module
         partition.CHUNK_SIZE = size 
         
-        # 3. MEASURE: Run the full pipeline
         t0 = time.time()
         try:
-            # We call run_pipeline which handles Stage 1 through 5
             run_pipeline(data_glob=data_glob, workers=worker_count)
             elapsed = time.time() - t0
         except Exception as e:
@@ -43,19 +33,15 @@ def measure_chunk_performance(chunk_sizes, data_glob="data_arch/*.csv", worker_c
         results_time.append(elapsed)
         print(f"\n>>> FINISHED CHUNK {size:,}: {elapsed:.2f} seconds\n")
 
-    # ------------------------------------------------------------------ #
-    # PLOTTING THE RESULTS
-    # ------------------------------------------------------------------ #
     plt.figure(figsize=(10, 6))
     plt.plot(chunk_sizes, results_time, marker='o', linestyle='-', color='darkcyan', linewidth=2, markersize=8)
     
-    # Visual Polish
     plt.title("Impact of Chunk Size on Total Execution Time", fontsize=14)
     plt.xlabel("Chunk Size (Rows per Shard)", fontsize=12)
     plt.ylabel("Total Pipeline Time (Seconds)", fontsize=12)
     plt.grid(True, linestyle='--', alpha=0.6)
     
-    # Identify and annotate the "Sweet Spot" (minimum time)
+    # minimum time
     if any(t > 0 for t in results_time):
         valid_times = [t for t in results_time if t > 0]
         min_time = min(valid_times)
