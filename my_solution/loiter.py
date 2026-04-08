@@ -1,10 +1,8 @@
 # loiter.py
-# Anomaly B — Loitering / Rendezvous detection.
-#
-# Pipeline:
-#   MAP  (parallel) — for each 2-min timestamp bucket, find vessel pairs within 500m
-#   REDUCE (sequential, ordered) — track how long each pair stays close
-#   FLAG  — pairs that stay within 500m for > 2 continuous hours
+# Anomaly B: Loitering detection:
+#   MAP: for each 2-min timestamp bucket, find vessel pairs within 500m
+#   REDUCE: track how long each pair stays close
+#   FLAG: pairs that stay within 500m for > 2 continuous hours
 
 import ast
 import csv
@@ -20,8 +18,7 @@ from config import LOITERING_DIR, LOITER_PROX_M, LOITER_MIN_HOURS
 
 def _brute_force_pairs(snapshot, prox_m):
     """
-    Fallback spatial search when scipy is unavailable.
-    Compares all pairs with haversine directly — O(n²) but correct.
+    Fallback spatial search when scipy is unavailable, compares all pairs with haversine directly - O(n²)
     """
     close_pairs = set()
     for i in range(len(snapshot)):
@@ -36,11 +33,7 @@ def _brute_force_pairs(snapshot, prox_m):
 
 def process_snapshot(args):
     """
-    MAP STEP (parallelized) — takes one timestamp snapshot, finds all vessel
-    pairs within LOITER_PROX_M, returns them as sorted (mmsi1, mmsi2) tuples.
-
-    Uses KDTree for fast candidate filtering, then exact haversine verification.
-    Falls back to brute-force haversine if scipy is unavailable.
+    MAP: takes one timestamp snapshot, finds all vessel pairs within LOITER_PROX_M, returns them as sorted (mmsi1, mmsi2) tuples
     """
     ts, snapshot, lat_scale, lon_scale, use_kdtree, prox_m = args
 
@@ -56,8 +49,7 @@ def process_snapshot(args):
     else:
         index_pairs = _brute_force_pairs(snapshot, prox_m)
 
-    # Exact haversine verification on KDTree candidates
-    # (KDTree uses scaled Euclidean distance — haversine confirms true geodesic distance)
+    # haversine verification on KDTree candidates
     close_set = set()
     for i, j in index_pairs:
         c1, c2 = snapshot[i], snapshot[j]
@@ -74,8 +66,8 @@ def process_snapshot(args):
 
 def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     """
-    Full Anomaly B pipeline. Reads per-shard candidate files produced by
-    anomalies.py and runs the map/reduce loitering detection across all shards.
+    Anomaly B pipeline: reads per-shard candidate files produced by
+    anomalies.py and runs the map/reduce loitering detection across all shards
     """
     import config
     active_workers = workers if workers is not None else config.NUM_WORKERS
@@ -91,7 +83,6 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # ── 1. Load all candidates from shard files ──────────────────────────
     all_candidates = []
     for path in loiter_candidate_paths:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -113,7 +104,7 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     if not all_candidates:
         return {}
 
-    # ── 2. Group by 2-minute timestamp bucket ────────────────────────────
+    # Group by 2-minute timestamp bucket 
     by_timestamp = defaultdict(list)
     for c in all_candidates:
         by_timestamp[c["timestamp_parsed"]].append(c)
@@ -126,7 +117,6 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     lat_scale = 110540.0
     lon_scale = 111320.0 * math.cos(math.radians(mean_lat))
 
-    # ── 3. MAP PHASE: parallel spatial search per timestamp ──────────────
     # Only buckets with >= 2 vessels can have a pair
     map_inputs = [
         (ts, by_timestamp[ts], lat_scale, lon_scale, USE_KDTREE, LOITER_PROX_M)
@@ -137,29 +127,25 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     print(f"  -> Mapping {len(map_inputs)} snapshots across {active_workers} core(s)...")
     if active_workers > 1:
         with multiprocessing.Pool(processes=active_workers) as pool:
-            # pool.map preserves input order → output is chronological for reduce step
             processed_snapshots = pool.map(process_snapshot, map_inputs)
     else:
         processed_snapshots = [process_snapshot(inp) for inp in map_inputs]
 
-    # ── 4. REDUCE PHASE: sequential streak tracking ──────────────────────
-    # Must be sequential and ordered — streak duration is cumulative across time.
+    # Reduce: sequential streak tracking 
     print("  -> Reducing to loitering streaks...")
-    streaks          = {}   # pair -> {start_str, start_parsed, last_str, last_parsed, flagged}
+    streaks          = {}   
     loitering_events = []
 
     for ts, close_set, mmsis_present, ts_str in processed_snapshots:
-        # All tracked pairs where both vessels appear at this timestamp
         active_pairs = {
             pair for pair in streaks
             if pair[0] in mmsis_present and pair[1] in mmsis_present
         }
-        # Union with newly close pairs at this timestamp
         all_relevant = active_pairs | close_set
 
         for pair in all_relevant:
             if pair in close_set:
-                # Both present AND within 500m — start or extend streak
+                # Both present AND within 500m: start or extend streak
                 if pair not in streaks:
                     streaks[pair] = {
                         "start_str":    ts_str,
@@ -186,17 +172,16 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
                             "duration_h": round(hours, 2),
                         })
             else:
-                # Both present BUT no longer within 500m — reset streak
                 streaks.pop(pair, None)
 
-    # ── 5. Count B flags per vessel ──────────────────────────────────────
+    # Count B flags per vessel
     b_counts = defaultdict(int)
     for pair, streak in streaks.items():
         if streak["flagged"]:
             b_counts[pair[0]] += 1
             b_counts[pair[1]] += 1
 
-    # ── 6. Write outputs ─────────────────────────────────────────────────
+    # outputs
     events_path = os.path.join(out_dir, "loitering_events.csv")
     with open(events_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["mmsi1", "mmsi2", "ts_start", "ts_end", "duration_h"])
