@@ -10,7 +10,6 @@ from geo import haversine, time_diff_hours
 from config import LOITERING_DIR, LOITER_PROX_M, LOITER_MIN_HOURS
 
 def _brute_force_pairs(snapshot, max_dist_m):
-    """Fallback when scipy is unavailable."""
     pairs = set()
     for i in range(len(snapshot)):
         for j in range(i + 1, len(snapshot)):
@@ -19,9 +18,7 @@ def _brute_force_pairs(snapshot, max_dist_m):
 
 def process_snapshot(args):
     """
-    MAP STEP (Parallelized): 
-    Takes a single timestamp snapshot, builds the KDTree, and calculates Haversine distances.
-    Returns the pre-calculated close pairs and their exact coordinates.
+    MAP: Takes a single timestamp snapshot, builds the KDTree, and calculates Haversine distances, returns the pre-calculated close pairs and their exact coordinates
     """
     ts, snapshot, lat_scale, lon_scale, use_kdtree, prox_m = args
     close_data = {}  # Now a dict mapping (mmsi1, mmsi2) -> (lat, lon)
@@ -58,7 +55,7 @@ def process_snapshot(args):
 def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     """
     Reads candidates, utilizes parallel MapReduce for spatial proximity checks,
-    and sequentially tracks duration streaks with Drift Math and a Grace Period.
+    and sequentially tracks duration streaks 
     """
     import config
     active_workers = workers if workers is not None else config.NUM_WORKERS
@@ -73,7 +70,6 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # --- 1. Load all candidates ---
     all_candidates = []
     for path in loiter_candidate_paths:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -97,7 +93,7 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     if not all_candidates:
         return {}
 
-    # --- 2. Group candidates by timestamp bucket ---
+    # Group candidates by timestamp bucket
     by_timestamp = defaultdict(list)
     for c in all_candidates:
         by_timestamp[c["timestamp_parsed"]].append(c)
@@ -113,7 +109,6 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     lat_scale = 110540.0
     lon_scale = 111320.0 * math.cos(math.radians(mean_lat))
 
-    # --- 3. MAP PHASE: Parallel Spatial Math ---
     map_inputs = []
     for ts in sorted_timestamps:
         if len(by_timestamp[ts]) >= 2:
@@ -126,7 +121,7 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
     else:
         processed_snapshots = [process_snapshot(inp) for inp in map_inputs]
 
-    # --- 4. REDUCE PHASE: Sequential Tracking with DRIFT FILTER ---
+    # Reduce:  Sequential tracking
     print("  -> Reducing spatial data and calculating drift distances...")
     streaks = {}
     loitering_events = []
@@ -138,23 +133,21 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
             current_lat, current_lon = coords
             
             if pair not in streaks:
-                # NEW STREAK
                 streaks[pair] = {
                     "start_str":    ts_str,
                     "start_parsed": ts,
                     "last_str":     ts_str,
                     "last_parsed":  ts,
-                    "start_lat":    current_lat, # Anchor point to measure drift
+                    "start_lat":    current_lat, 
                     "start_lon":    current_lon,
-                    "max_drift_m":  0.0,         # Highest drift distance seen so far
+                    "max_drift_m":  0.0,         
                     "flagged":      False,
                 }
             else:
-                # STREAK CONTINUES
                 streaks[pair]["last_str"]    = ts_str
                 streaks[pair]["last_parsed"] = ts
 
-                # Update the drift distance
+                # update drift distance
                 drift_m = haversine(
                     streaks[pair]["start_lat"], streaks[pair]["start_lon"], 
                     current_lat, current_lon
@@ -162,10 +155,9 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
                 if drift_m > streaks[pair]["max_drift_m"]:
                     streaks[pair]["max_drift_m"] = drift_m
 
-                # Check thresholds: > LOITER_MIN_HOURS AND drifted > 500m
+                # Check > LOITER_MIN_HOURS and drifted > 500m
                 hours = time_diff_hours(streaks[pair]["start_parsed"], streaks[pair]["last_parsed"])
                 
-                # Note: We require > 500m drift to prove they aren't just moored at a dock.
                 if hours > LOITER_MIN_HOURS and streaks[pair]["max_drift_m"] > 500.0 and not streaks[pair]["flagged"]:
                     streaks[pair]["flagged"] = True
                     loitering_events.append({
@@ -176,7 +168,6 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
                         "duration_h": round(hours, 2),
                     })
 
-        # THE GRACE PERIOD (20 mins / 0.33 hours)
         pairs_to_kill = []
         for p in list(streaks.keys()):
             if p not in active_pairs_this_ts:
@@ -187,13 +178,12 @@ def run_loiter(loiter_candidate_paths, out_dir=LOITERING_DIR, workers=None):
         for p in pairs_to_kill:
             del streaks[p]
 
-    # --- 5. Build per-vessel B counts ---
     b_counts = defaultdict(int)
     for event in loitering_events:
         b_counts[event["mmsi1"]] += 1
         b_counts[event["mmsi2"]] += 1
 
-    # --- 6. Write outputs ---
+    # outputs
     events_path = os.path.join(out_dir, "loitering_events.csv")
     with open(events_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["mmsi1", "mmsi2", "ts_start", "ts_end", "duration_h"])
