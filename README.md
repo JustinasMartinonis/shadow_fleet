@@ -19,12 +19,41 @@ The primary goal of this project is to identify vessels in the Baltic Sea that e
 - Anomaly B (Loitering & Transfers): Two distinct, valid MMSI numbers located within 500 meters of each other, maintaining a speed (SOG) of < 1 knot, for > 2 hours.
 - Anomaly C (Draft Changes at Sea): Vessels whose draught (depth in water) changes by more than 5% during an AIS blackout of > 2 hours (implying cargo was loaded/unloaded illegally).
 - Anomaly D (Identity Cloning / "Teleportation"): Identify instances where the same MMSI pings from two locations requiring an impossible travel speed (> 60 knots), indicating two physical ships are broadcasting the same stolen ID.
-  
+
+
+## Data Cleaning
+
+AIS data contains significant noise. To improve reliability, the following filtering rules were applied:
+
+- Invalid MMSIs are filtered out (e.g. "000000000", "111111111", "123456789")
+- MMSI prefixes such as "111" are excluded, as they often represent malformed or special-purpose broadcasts (e.g. SAR-related signals)
+- Certain vessel types are excluded: tug, towing, SAR
+  - These vessels can distort loitering and teleportation detection due to operational patterns
+- Geographic filtering is applied to restrict analysis to the Baltic and North Sea region:
+  - Latitude: 51°N – 66°N  
+  - Longitude: 5°W – 30°E
+     
 ## Features
 
 - Dirty Data Filtering: Removes invalid MMSIs, specific vessel types (tug, towing, SAR), and data outside the Baltic/North Sea region (51°N-66°N, 5°W-30°E).
 - Low-Memory Architecture: Processes large datasets row-by-row in chunks, using temporary shard files to keep RAM usage under 1GB.
 - Anomaly Detection: Identifies "teleportation" (impossible distance jumps) and "loitering" (transmission gaps) to calculate a Dark Fleet Shadow Index (DFSI).
+
+## Additional Scripts
+
+This repository contains extra scripts, with the label "extra" or "not in use". These are not part of the main pipeline and are used only for testing. Therefore, they are not executed in the final workflow.
+
+## Low-Memory Processing Architecture
+
+To handle large AIS datasets efficiently, the pipeline is designed for memory-constrained execution:
+
+- The dataset is processed row-by-row in small chunks
+- Each record is validated immediately (missing fields, duplicates, invalid values)
+- Valid data is written into temporary shard files on disk
+- Only one shard is kept in memory at any time
+- After processing, shards are combined for downstream anomaly detection
+
+This approach ensures that total RAM usage remains below ~1GB, even for large datasets.
 
 ## DFSI (Shadow Fleet Suspicion Index)
 
@@ -41,9 +70,48 @@ where C counts illicit draft change events detected for that vessel
 | 2    | 219009229 | 141.96| 1419.6 NM Dist Jump |
 | 3    | 246830000 | 130.96| 1309.6 NM Dist Jump |
 
-According to this result, the top three scoring vessels showed a distance jump as the key anomaly. 
+## Interpretation of Results
 
-These vessels experienced a distance jump of 1309.6 to 2881.0 nautical miles between AIS points. As this is physically impossible at sea, this distance jump strongly indicates that these ships enabled AIS spoofing or are using another ship's MMSI.
+The highest DFSI scoring vessels show extremely large distance jumps between AIS signals.
+
+These jumps range from 1300 to 2800+ nautical miles, which is physically impossible under normal maritime conditions.
+
+Possible explanations include:
+- AIS spoofing or identity misuse (multiple vessels broadcasting the same MMSI)
+- Data glitches not fully removed by preprocessing filters
+- Intentional signal manipulation ("teleportation" events)
+
+After the top-ranked vessels, DFSI values decrease sharply and stabilize, suggesting that extreme anomalies are rare and well isolated.
+
+## Performance: Speedup and Scalability
+
+We evaluated the system using different numbers of parallel workers.
+
+### Observations:
+- Overall speedup remains close to 1.0x even with additional workers
+- This is due to I/O-bound bottlenecks (disk reading and writing dominates runtime)
+- The anomaly detection phase itself is highly parallelized and executes efficiently
+
+### Interpretation:
+This behavior is consistent with Amdahl’s Law, where the sequential I/O portion limits overall scalability.
+
+Most execution time is spent on:
+- Reading large CSV files
+- Writing intermediate shard files
+
+CPU parallelism has limited effect because disk throughput becomes the bottleneck.
+
+## Memory Profiling
+
+Memory usage was analyzed across different worker configurations.
+
+Key findings:
+- The main orchestrator process consistently stays below ~300MB RAM
+- No significant memory spikes occur in the main process
+- Memory usage scales linearly with the number of workers
+- This indicates good scalability and balanced workload distribution
+
+A Python memory profiler was used to inspect memory usage at a per-line level during execution.
 
 ## Conclusion
 
