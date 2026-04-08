@@ -1,14 +1,8 @@
 # geo.py
-# Geospatial utility functions
 import math
 from datetime import datetime
 
-
 def haversine(lat1, lon1, lat2, lon2):
-    """
-    Calculates great-circle distance between two coordinates.
-    Returns distance in meters.
-    """
     R = 6371000  # Earth radius in meters
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -29,7 +23,7 @@ def time_diff_hours(t1, t2):
 
 def implied_speed_knots(dist_m, hours):
     """
-    Returns implied speed in knots given distance in meters and time in hours.
+    Returns implied speed in knots given distance in meters and time in hours
     """
     if hours <= 0:
         return float("inf")
