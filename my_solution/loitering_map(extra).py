@@ -5,14 +5,10 @@ import os
 import glob
 import csv
 from datetime import datetime
-
-# ---> CHANGED: Import PARTITIONED_DIR instead of the raw data glob
 from config import PARTITIONED_DIR 
-# ---> CHANGED: Removed is_valid_row
 from parsing import parse_row
 
 def generate_loitering_map():
-    # 1. Read the loitering events and find the most severe one
     if not os.path.exists("all_loitering_events.csv"):
         print("Error: all_loitering_events.csv not found.")
         return
@@ -22,8 +18,7 @@ def generate_loitering_map():
         print("No loitering events found.")
         return
 
-    # Sort by duration to get the longest rendezvous
-    # Change .iloc[0] to a different number if you want the 2nd, 3rd, etc.
+    # Sort by duration to get the longest 
     top_event = events_df.sort_values(by="duration_h", ascending=False).iloc[0]
     
     mmsi1 = str(int(top_event["mmsi1"]))
@@ -34,12 +29,11 @@ def generate_loitering_map():
 
     print(f"Plotting Top Rendezvous: {mmsi1} and {mmsi2} (Duration: {duration} hours)")
 
-    # 2. Extract full tracks for BOTH vessels from the CLEAN SHARDS
+    # Extract full tracks for both vessels from the clean shards
     print("Scanning partitioned shards for both vessels... (this will be fast!)")
     points_mmsi1 = []
     points_mmsi2 = []
 
-    # ---> CHANGED: Point to your clean shards
     shard_pattern = os.path.join(PARTITIONED_DIR, "*.csv")
     
     for file_path in glob.glob(shard_pattern):
@@ -48,7 +42,6 @@ def generate_loitering_map():
             for row in reader:
                 mmsi_val = row.get("MMSI", "").strip()
                 
-                # ---> CHANGED: Deleted is_valid_row(). We trust the shards!
                 if mmsi_val == mmsi1:
                     parsed = parse_row(row)
                     if parsed and parsed["Latitude"] != 0 and parsed["Longitude"] != 0:
@@ -59,7 +52,7 @@ def generate_loitering_map():
                     if parsed and parsed["Latitude"] != 0 and parsed["Longitude"] != 0:
                         points_mmsi2.append(parsed)
 
-    # Sort both tracks chronologically
+    # Sort chronologically
     points_mmsi1.sort(key=lambda x: x["timestamp_parsed"])
     points_mmsi2.sort(key=lambda x: x["timestamp_parsed"])
 
@@ -67,8 +60,7 @@ def generate_loitering_map():
         print("Could not find raw GPS points for one or both vessels.")
         return
 
-    # 3. Extract the exact segment where they were loitering together
-    # Helper to parse the timestamp string back to a datetime object for comparison
+    # Extract the exact segment where they were loitering together
     def parse_time(ts):
         return datetime.strptime(ts, "%d/%m/%Y %H:%M:%S")
 
@@ -85,11 +77,11 @@ def generate_loitering_map():
     loiter_coords1 = [(p["Latitude"], p["Longitude"]) for p in loiter_segment_1]
     loiter_coords2 = [(p["Latitude"], p["Longitude"]) for p in loiter_segment_2]
 
-    # Center map on the start of the rendezvous (or the middle of their route if drift is missing)
+    # Center map on the start
     center_loc = loiter_coords1[0] if loiter_coords1 else coords1[len(coords1)//2]
     m = folium.Map(location=[center_loc[0], center_loc[1]], zoom_start=9)
 
-    # 4. Draw the full commute tracks (Thin and slightly faded)
+    # Draw the full commute tracks
     folium.PolyLine(
         locations=coords1, color="blue", weight=2, opacity=0.4, 
         tooltip=f"Vessel 1 Full Track ({mmsi1})"
@@ -100,7 +92,6 @@ def generate_loitering_map():
         tooltip=f"Vessel 2 Full Track ({mmsi2})"
     ).add_to(m)
 
-    # 5. Highlight the "Crime Scene" Drift Path (Thick and glowing)
     if loiter_coords1:
         folium.PolyLine(
             locations=loiter_coords1, color="red", weight=6, opacity=0.8, 
@@ -113,7 +104,6 @@ def generate_loitering_map():
             tooltip=f"Vessel 2 Loitering Drift ({mmsi2})"
         ).add_to(m)
 
-    # 6. Add markers for the Start and End of the rendezvous
     if loiter_coords1:
         folium.Marker(
             loiter_coords1[0], 
@@ -127,7 +117,6 @@ def generate_loitering_map():
             icon=folium.Icon(color="red", icon="stop")
         ).add_to(m)
 
-    # 7. Save the map
     map_filename = f"rendezvous_{mmsi1}_{mmsi2}.html"
     m.save(map_filename)
     print(f"Success! Map saved to '{map_filename}'.")
