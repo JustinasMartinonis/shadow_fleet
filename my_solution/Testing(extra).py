@@ -2,17 +2,17 @@ import glob
 import csv
 import os
 
-# How many shards were created and what's their total row count?
+# Count how many shards are created and their total row count
 shards = sorted(glob.glob("partitioned/ais_shard_*.csv"))
 print(f"Shards: {len(shards)}")
 
 total_rows = 0
 for s in shards:
     with open(s, "r") as f:
-        total_rows += sum(1 for _ in f) - 1  # subtract header
+        total_rows += sum(1 for _ in f) - 1  
 print(f"Total rows across all shards: {total_rows:,}")
 
-# How many vessels were actually detected?
+# Number of vessels detected
 vessel_files = sorted(glob.glob("analysis/*_vessels.csv"))
 total_vessels = 0
 total_points  = 0
@@ -25,7 +25,7 @@ for vf in vessel_files:
 print(f"Unique vessels tracked: {total_vessels:,}")
 print(f"Total track points processed: {total_points:,}")
 
-# How many anomaly events?
+# Counting anomaly events
 event_files = sorted(glob.glob("analysis/*_events.csv"))
 total_events = 0
 for ef in event_files:

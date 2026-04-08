@@ -1,12 +1,4 @@
 # anomalies.py
-# All anomaly detection logic in one place.
-#
-# Structure:
-#   - Four detector functions (A, C, D, and B candidates) — pure logic, no file I/O
-#   - process_shard() — reads one shard CSV, runs detectors, writes results to disk
-#   - _save_boundary_state() — saves first/last vessel point per shard for the
-#     boundary sweep in pipeline.py
-
 import csv
 import os
 from collections import defaultdict
@@ -21,17 +13,10 @@ from config import (
     LOITER_SPEED_KNOTS,
 )
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ANOMALY DETECTORS  (pure functions)
-# Each takes a chronologically sorted list of parsed points for one vessel.
-# Each returns a list of event dicts (empty list if nothing detected).
-# ─────────────────────────────────────────────────────────────────────────────
-
 def detect_going_dark(points):
     """
-    Anomaly A — AIS gap > 4 hours where the vessel kept moving.
-    Requires dist > 1 NM AND implied speed > 0.5 kn to exclude anchored vessels.
+    Anomaly A: AIS gap > 4 hours where the vessel kept moving
+    Requires dist > 1 nm and speed > 0.5 to exclude anchored vessels
     """
     events = []
     if len(points) < 2:
@@ -48,7 +33,6 @@ def detect_going_dark(points):
         dist_nm     = dist_m / 1852.0
         speed_knots = dist_nm / gap_hours if gap_hours > 0 else 0
 
-        # Must imply movement — rules out vessels simply sitting at anchor
         if dist_m > 1852.0 and speed_knots > 0.5:
             events.append({
                 "anomaly":     "A",
@@ -68,8 +52,7 @@ def detect_going_dark(points):
 
 def detect_draft_change(points):
     """
-    Anomaly C — Draught changes > 5% during a gap > 2 hours.
-    Implies cargo was loaded/unloaded at sea (illegal STS transfer).
+    Anomaly C: Draught changes > 5% during a gap > 2 hours.
     """
     events = []
     for i in range(1, len(points)):
@@ -103,8 +86,7 @@ def detect_draft_change(points):
 
 def detect_teleportation(points):
     """
-    Anomaly D — Implied speed between two consecutive pings exceeds 60 knots.
-    Physically impossible for a ship → same MMSI broadcast by two vessels (identity cloning).
+    Anomaly D: speed between two consecutive pings for same MMSI exceeds 60 knots
     """
     events = []
     for i in range(1, len(points)):
@@ -136,13 +118,8 @@ def detect_teleportation(points):
 
 def build_loiter_candidates(points):
     """
-    Anomaly B (prep) — Collects points where a vessel is moving slowly (< 1 kn)
-    but not anchored (reported SOG > 0). These candidates are passed to loiter.py
-    which checks for pairs of vessels near each other for > 2 continuous hours.
-
-    Hybrid filter:
-      - reported SOG > 0   → engine is running, vessel is not at anchor/moored
-      - haversine speed < 1 kn → vessel is barely moving (loitering threshold)
+    Anomaly B: Collects points where a vessel is moving slowly (< 1 kn)
+    but not anchored (reported SOG > 0)
     """
     candidates = []
     if len(points) < 2:
@@ -170,15 +147,10 @@ def build_loiter_candidates(points):
             })
     return candidates
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SHARD WORKER  (called in parallel by pipeline.py)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _save_boundary_state(vessels, state_path):
     """
-    Saves the first and last ping for each vessel in this shard.
-    pipeline.py reads these to detect anomalies that span two shard boundaries.
+    Saves first and last ping for each vessel in this shard,
+    pipeline.py reads these to detect anomalies that span two shard boundaries
     """
     fields = ["mmsi", "boundary", "timestamp_parsed", "timestamp_str", "lat", "lon", "draught", "sog"]
     with open(state_path, "w", newline="", encoding="utf-8") as f:
@@ -202,9 +174,7 @@ def _save_boundary_state(vessels, state_path):
 
 def process_shard(shard_path):
     """
-    Worker function — runs in a separate process for each shard.
-
-    Steps:
+    Worker function:
       1. Read shard CSV and group pings by MMSI
       2. Sort each vessel's pings chronologically
       3. Run detectors A, C, D on each vessel's track
@@ -222,7 +192,6 @@ def process_shard(shard_path):
     loiter_path  = os.path.join(ANALYSIS_DIR, f"{shard_name}_loiter_candidates.csv")
     state_path   = os.path.join(ANALYSIS_DIR, f"{shard_name}_state.csv")
 
-    # Step 1 & 2: Read, group by MMSI, deduplicate, sort chronologically
     vessels      = defaultdict(list)
     seen_buckets = set()
 
@@ -240,7 +209,6 @@ def process_shard(shard_path):
     for pts in vessels.values():
         pts.sort(key=lambda x: x["timestamp_parsed"])
 
-    # Step 3 & 4: Run detectors on each vessel's full track
     all_events    = []
     vessel_counts = {}
     loiter_cands  = []
@@ -262,10 +230,8 @@ def process_shard(shard_path):
 
         loiter_cands.extend(build_loiter_candidates(points))
 
-    # Step 5: Save boundary edges so pipeline.py can check cross-shard gaps
     _save_boundary_state(vessels, state_path)
 
-    # Step 6: Write results to disk
     event_fields = [
         "anomaly", "mmsi", "ts_start", "ts_end",
         "lat_start", "lon_start", "lat_end", "lon_end",
