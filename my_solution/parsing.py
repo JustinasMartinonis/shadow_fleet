@@ -1,16 +1,9 @@
 # parsing.py
-# Type conversion helpers for pre-cleaned shard rows.
-# Validation already happened in partition.py — these functions just parse types.
 
 from config import DOWNSAMPLE_MINUTES
 
 
 def fast_parse(ts):
-    """
-    Converts AIS timestamp string to a comparable tuple.
-    Format: DD/MM/YYYY HH:MM:SS  →  (year, month, day, hour, minute, second)
-    Tuple comparison gives correct chronological ordering with no datetime overhead.
-    """
     return (
         int(ts[6:10]),   # year
         int(ts[3:5]),    # month
@@ -22,10 +15,6 @@ def fast_parse(ts):
 
 
 def parse_row(row):
-    """
-    Converts a clean shard row (dict) into typed fields.
-    Returns None only if a float conversion fails (should be rare on clean shards).
-    """
     try:
         ts = row["# Timestamp"].strip()
         return {
