@@ -73,7 +73,7 @@ def run_benchmark(data_glob="data_arch/*.csv", worker_counts=None):
     """
     if worker_counts is None:
         max_cores = multiprocessing.cpu_count()
-        worker_counts = [1, max_cores] if max_cores > 4 else list(range(1, max_cores + 1))
+        worker_counts = [1, 4, 8, max_cores] if max_cores > 4 else list(range(1, max_cores + 1))
         worker_counts = sorted(set(worker_counts))
 
     print(f"Benchmarking worker counts: {worker_counts}")

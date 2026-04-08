@@ -9,11 +9,15 @@ import multiprocessing
 from datetime import datetime
 from collections import defaultdict
 
+from anomalies import (
+    process_shard, 
+    detect_going_dark, 
+    detect_draft_change, 
+    detect_teleportation
+)
 from partition import partition_all
-from detect import process_shard
 from loiter import run_loiter
 from scoring import run_scoring
-from models import detect_going_dark, detect_draft_change, detect_teleportation
 from config import NUM_WORKERS, ANALYSIS_DIR, LOITERING_DIR
 
 

@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from parsing import fast_parse, is_valid_row, parse_row, downsample_bucket
 from geo import haversine, time_diff_hours, implied_speed_knots
-from models import detect_going_dark, detect_draft_change, detect_teleportation, build_loiter_candidates
+from anomalies import detect_going_dark, detect_draft_change, detect_teleportation, build_loiter_candidates
 from loiter import run_loiter
 from pipeline import run_pipeline
 

@@ -1,57 +1,151 @@
 # partition.py
-# Splits raw CSVs into fixed-size shards for parallel processing
+# Single validation gate for raw AIS data.
+# Reads raw CSVs line-by-line, filters bad rows, and writes fixed-size shards to disk.
+# Nothing downstream needs to re-validate — shards are guaranteed clean.
+
 import csv
 import glob
 import os
-from config import DATA_ARCH_GLOB, PARTITIONED_DIR, CHUNK_SIZE
+from config import (
+    DATA_ARCH_GLOB, PARTITIONED_DIR, CHUNK_SIZE,
+    DIRTY_MMSI, DIRTY_PREFIXES, EXCLUDED_SHIP_TYPES,
+    LAT_MIN, LAT_MAX, LON_MIN, LON_MAX
+)
+
+MAX_ROWS = 500_000_000  # Safety kill-switch for runaway reads
 
 
-def partition_all(data_glob=DATA_ARCH_GLOB, out_dir=PARTITIONED_DIR, chunk_size=CHUNK_SIZE):
+def _is_valid(row):
     """
-    Reads all CSVs matching data_glob, writes fixed-size shards to out_dir.
-    Returns list of shard file paths.
+    Single validation gate — called once per raw row.
+    Returns False on any bad data so it never reaches workers.
+    """
+    # --- MMSI ---
+    mmsi = row.get("MMSI", "").strip()
+    if not mmsi or mmsi in DIRTY_MMSI or len(mmsi) != 9 or not mmsi.isdigit() or mmsi[0] == "0":
+        return False
+    if mmsi.startswith(DIRTY_PREFIXES):  
+        return False
+
+    # --- Timestamp ---
+    if not row.get("# Timestamp"):
+        return False
+
+    # --- Vessel class and type ---
+    if row.get("Type of mobile", "").strip() != "Class A":
+        return False
+    if row.get("Ship type", "").strip().lower() in EXCLUDED_SHIP_TYPES:
+        return False
+
+    # --- Coordinates ---
+    try:
+        lat = float(row.get("Latitude", ""))
+        lon = float(row.get("Longitude", ""))
+        if lat == 0.0 or lon == 0.0:                          # Null Island fix
+            return False
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+            return False
+        if not (LAT_MIN <= lat <= LAT_MAX and LON_MIN <= lon <= LON_MAX):  # Bounding box
+            return False
+    except ValueError:
+        return False
+
+    # --- Speed over ground ---
+    sog_str = row.get("SOG", "").strip()
+    if sog_str:
+        try:
+            if float(sog_str) > 60:
+                return False
+        except ValueError:
+            return False
+
+    return True
+
+
+def _dedup_key(mmsi, ts):
+    """2-minute deduplication bucket key — one ping per vessel per 2-min window."""
+    yr = int(ts[6:10]); mo = int(ts[3:5]); dy = int(ts[0:2])
+    hr = int(ts[11:13]); mn = int(ts[14:16])
+    return (mmsi, yr, mo, dy, hr, mn // 2)
+
+
+def read_chunks(file_path):
+    """
+    Generator: reads the raw file row-by-row, validates, deduplicates,
+    and yields clean batches of CHUNK_SIZE rows.
+    Nothing is held in memory beyond the current batch + the dedup set.
+    """
+    raw_rows     = 0
+    rows_read    = 0
+    seen_buckets = set()
+
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        reader = csv.DictReader(f)
+        batch  = []
+
+        for row in reader:
+            raw_rows += 1
+            if raw_rows % 500_000 == 0:
+                print(f"  [reader] {raw_rows:,} raw rows scanned | {rows_read:,} accepted")
+            if rows_read >= MAX_ROWS:
+                break
+
+            if not _is_valid(row):
+                continue
+
+            mmsi = row["MMSI"].strip()
+            ts   = row["# Timestamp"].strip()
+
+            key = _dedup_key(mmsi, ts)
+            if key in seen_buckets:
+                continue
+            seen_buckets.add(key)
+
+            batch.append({
+                "MMSI":           mmsi,
+                "# Timestamp":    ts,
+                "Latitude":       float(row["Latitude"]),
+                "Longitude":      float(row["Longitude"]),
+                "SOG":            float(row.get("SOG", "").strip() or 0),
+                "Draught":        float(row.get("Draught", "").strip() or 0),
+            })
+            rows_read += 1
+
+            if len(batch) >= CHUNK_SIZE:
+                yield batch
+                batch = []
+
+        if batch:
+            yield batch
+
+    print(f"  [reader] Done. {raw_rows:,} raw | {rows_read:,} accepted")
+
+
+def partition_all(data_glob=DATA_ARCH_GLOB, out_dir=PARTITIONED_DIR):
+    """
+    Consumes clean batches from read_chunks and writes them as numbered shard CSVs.
+    Returns list of shard file paths for the next pipeline stage.
     """
     os.makedirs(out_dir, exist_ok=True)
-
     input_files = sorted(glob.glob(data_glob))
     if not input_files:
         raise FileNotFoundError(f"No CSV files found matching: {data_glob}")
 
-    print(f"Partitioning {len(input_files)} input file(s) into shards of {chunk_size} rows...")
+    print(f"Partitioning {len(input_files)} file(s) into shards of {CHUNK_SIZE:,} rows...")
 
-    shard_index  = 0
-    shard_writer = None
-    shard_file   = None
-    rows_in_shard = 0
-    shard_paths  = []
-    headers      = None
+    headers     = ["MMSI", "# Timestamp", "Latitude", "Longitude", "SOG", "Draught"]
+    shard_index = 0
+    shard_paths = []
 
     for filepath in input_files:
-        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            reader = csv.DictReader(f)
-
-            # Use headers from the first file
-            if headers is None:
-                headers = reader.fieldnames
-
-            for row in reader:
-                # Open a new shard if needed
-                if shard_writer is None or rows_in_shard >= chunk_size:
-                    if shard_file:
-                        shard_file.close()
-                    shard_path = os.path.join(out_dir, f"ais_shard_{shard_index:04d}.csv")
-                    shard_paths.append(shard_path)
-                    shard_file   = open(shard_path, "w", newline="", encoding="utf-8")
-                    shard_writer = csv.DictWriter(shard_file, fieldnames=headers)
-                    shard_writer.writeheader()
-                    rows_in_shard = 0
-                    shard_index  += 1
-
-                shard_writer.writerow(row)
-                rows_in_shard += 1
-
-    if shard_file:
-        shard_file.close()
+        for batch in read_chunks(filepath):
+            shard_path = os.path.join(out_dir, f"ais_shard_{shard_index:04d}.csv")
+            with open(shard_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+                writer.writerows(batch)
+            shard_paths.append(shard_path)
+            shard_index += 1
 
     print(f"Created {len(shard_paths)} shards in '{out_dir}/'")
     return shard_paths

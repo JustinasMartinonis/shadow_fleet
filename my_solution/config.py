@@ -15,7 +15,15 @@ NUM_WORKERS         = 11          # Set to 1 to measure baseline, increase for s
 
 # --- Parsing / Validation ---
 DIRTY_MMSI          = {"000000000", "111111111", "123456789"}
-DOWNSAMPLE_MINUTES  = 2          # Keep one point per N minutes per vessel
+DIRTY_PREFIXES      = ("111",)
+DOWNSAMPLE_MINUTES  = 2    
+EXCLUDED_SHIP_TYPES = {"tug", "towing", "sar"}      # Keep one point per N minutes per vessel
+
+# Baltic & North Sea Bounding Box
+LAT_MIN = 51.0
+LAT_MAX = 66.0
+LON_MIN = -5.0
+LON_MAX = 30.0
 
 # --- Anomaly A: Going Dark ---
 GOING_DARK_HOURS    = 4.0        # Minimum AIS gap in hours to flag
@@ -39,4 +47,4 @@ TELEPORT_KNOTS      = 60.0       # Implied speed above this is physically imposs
 DFSI_WEIGHTS        = {"A": 3, "B": 4, "C": 2, "D": 5}
 
 # --- Output ---
-TOP_N_VESSELS       = 5
+TOP_N_VESSELS       = 10

@@ -17,8 +17,8 @@ def generate_full_vessel_map():
         print("No vessels in top5_vessels.csv")
         return
         
-    top_mmsi = str(int(top_df.iloc[0]["mmsi"]))
-    dfsi_score = top_df.iloc[0]["DFSI"]
+    top_mmsi = str(int(top_df.iloc[3]["mmsi"]))
+    dfsi_score = top_df.iloc[3]["DFSI"]
     print(f"Top Offender MMSI: {top_mmsi} (DFSI Score: {dfsi_score})")
 
     # 2. Extract the FULL track from the raw dataset

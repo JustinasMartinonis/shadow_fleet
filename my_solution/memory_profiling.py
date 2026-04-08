@@ -1,38 +1,43 @@
-import subprocess
 import sys
 import os
+import subprocess
+import memory_profiler
 
-def run_memory_profiling():
-    # The name of your actual pipeline script
-    target_script = "main.py" 
+# Ensure imports resolve if your script is in a subfolder
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from pipeline import run_pipeline
+
+def run_both_profiles():
+    target_scenarios = [1, 11]
     
-    # Optional: You can put the absolute path here if needed, 
-    # but since this script is in the same folder, just the name works!
-    
-    print(f"--- Starting Memory Profiling for {target_script} ---")
-    
-    # Step 1: Run the pipeline through mprof
-    # sys.executable ensures it uses your exact Anaconda Python environment
-    print("Gathering memory data (this will take a moment)...")
-    run_command = ["mprof", "run", sys.executable, target_script]
-    subprocess.run(run_command, check=True)
-    
-    print("\n--- Pipeline Complete ---")
-    
-    # Step 2: Tell mprof to generate the PNG graph
-    output_image = "memory_profile.png"
-    print(f"Generating graph: {output_image}...")
-    plot_command = ["mprof", "plot", "-o", output_image]
-    subprocess.run(plot_command, check=True)
-    
-    print(f"Success! Your memory graph has been saved as '{output_image}'.")
+    for w in target_scenarios:
+        print(f"\n--- Starting Memory Profiling: {w} Worker(s) ---")
+        
+        # We use a unique name for each data file so they don't overwrite
+        dat_file = f"mprofile_{w}_workers.dat"
+        output_png = f"memory_profile_{w}_workers.png"
+        
+        # Step 1: Run mprof. 
+        # We call the 'main.py' script via subprocess to ensure a clean process memory space
+        print(f"Gathering data for {w} worker(s)...")
+        # We pass the worker count as a command line argument if your main.py supports it,
+        # OR we temporarily overwrite the environment variable/config.
+        
+        # Simpler way: Run a small helper that calls run_pipeline(workers=w)
+        run_cmd = [
+            "mprof", "run", 
+            "--output", dat_file,
+            sys.executable, "-c", 
+            f"from pipeline import run_pipeline; run_pipeline(workers={w})"
+        ]
+        subprocess.run(run_cmd, check=True)
+        
+        # Step 2: Generate the graph for this specific run
+        print(f"Generating graph: {output_png}...")
+        plot_cmd = ["mprof", "plot", "-o", output_png, dat_file]
+        subprocess.run(plot_cmd, check=True)
+        
+        print(f"Success! Scenario {w} saved to {output_png}")
 
 if __name__ == "__main__":
-    # Make sure mprof is installed before running
-    try:
-        import memory_profiler
-    except ImportError:
-        print("Error: memory_profiler is not installed. Please run 'pip install memory_profiler matplotlib' first.")
-        sys.exit(1)
-        
-    run_memory_profiling()
+    run_both_profiles()
