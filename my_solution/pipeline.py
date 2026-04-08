@@ -43,14 +43,11 @@ def merge_event_csvs(pattern, out_path):
 
     print(f"  Merged {len(input_paths)} files -> {out_path}")
 
-
-# *** CHANGED *** Added `workers=None` to the function signature
 def run_pipeline(data_glob=None, output_dir=".", workers=None):
     from config import DATA_ARCH_GLOB
     if data_glob is None:
         data_glob = DATA_ARCH_GLOB
 
-    # *** CHANGED *** Determine if we are using the benchmark's worker count or the config's
     active_workers = workers if workers is not None else NUM_WORKERS
 
     start_time = time.time()
@@ -60,16 +57,11 @@ def run_pipeline(data_glob=None, output_dir=".", workers=None):
         "num_workers": active_workers,  # *** CHANGED *** 
         }
 
-    # ------------------------------------------------------------------ #
-    # STAGE 1: Partition raw CSVs into shards
-    # ------------------------------------------------------------------ #
+    # Partition raw CSVs into shards
     print("\n=== STAGE 1: Partitioning ===")
     shard_paths = partition_all(data_glob=data_glob)
     metadata["num_shards"] = len(shard_paths)
 
-    # ------------------------------------------------------------------ #
-    # STAGE 2a: PASS 1 - Fully Parallel Independence
-    # ------------------------------------------------------------------ #
     print(f"\n=== STAGE 2a: Detection (PASS 1 - PARALLEL) ===")
     t2 = time.time()
 
@@ -78,7 +70,6 @@ def run_pipeline(data_glob=None, output_dir=".", workers=None):
     loiter_paths  = []
     state_paths   = []
 
-    # *** CHANGED *** Use `active_workers` instead of `NUM_WORKERS`
     with multiprocessing.Pool(processes=active_workers) as pool:
         for ep, vp, lp, sp in pool.imap_unordered(process_shard, shard_paths):
             events_paths.append(ep)
@@ -86,15 +77,12 @@ def run_pipeline(data_glob=None, output_dir=".", workers=None):
             loiter_paths.append(lp)
             state_paths.append(sp)
 
-    # ------------------------------------------------------------------ #
-    # STAGE 2b: PASS 2 - Cross-Chunk Boundary Sweep (Sequential)
-    # ------------------------------------------------------------------ #
     print(f"\n=== STAGE 2b: Cross-Chunk Boundary Sweep (PASS 2 - SEQUENTIAL) ===")
     prev_last_points = {}
     boundary_events = []
     boundary_counts = defaultdict(lambda: {"A": 0, "C": 0, "D": 0, "points": 0})
 
-    # Shards MUST be processed chronologically
+    # Shards processed chronologically
     for shard_path in sorted(shard_paths):
         shard_name = os.path.splitext(os.path.basename(shard_path))[0]
         state_path = os.path.join(ANALYSIS_DIR, f"{shard_name}_state.csv")
@@ -141,11 +129,11 @@ def run_pipeline(data_glob=None, output_dir=".", workers=None):
                 boundary_counts[mmsi]["C"] += len(c_ev)
                 boundary_counts[mmsi]["D"] += len(d_ev)
 
-        # Carry forward the last known point. Missing vessels retain their older state.
+        # Carry forward the last known point, missing vessels retain their older state
         for mmsi, last_p in current_lasts.items():
             prev_last_points[mmsi] = last_p
 
-    # Write the boundary results out so Stage 3 picks them up
+    # Write the boundary results out 
     if boundary_events:
         bound_ev_path = os.path.join(ANALYSIS_DIR, "boundary_sweep_events.csv")
         event_fields = [
@@ -175,29 +163,22 @@ def run_pipeline(data_glob=None, output_dir=".", workers=None):
     metadata["detect_seconds"] = round(time.time() - t2, 2)
     print(f"Detection (Pass 1 & 2) complete in {metadata['detect_seconds']}s")
 
-    # ------------------------------------------------------------------ #
-    # STAGE 3: Merge per-shard event CSVs
-    # ------------------------------------------------------------------ #
+    # Merge per-shard event CSVs
     print("\n=== STAGE 3: Merging event CSVs ===")
     all_events_path = os.path.join(output_dir, "all_anomaly_events.csv")
     merge_event_csvs(os.path.join(ANALYSIS_DIR, "*_events.csv"), all_events_path)
 
-    # ------------------------------------------------------------------ #
-    # STAGE 4: Loitering detection (cross-shard, Anomaly B)
-    # ------------------------------------------------------------------ #
+    # Loitering detection for Anomaly B
     print("\n=== STAGE 4: Loitering Detection ===")
     t4       = time.time()
     
-    # *** CHANGED *** Pass `active_workers` into `run_loiter` so it can parallelize too
     b_counts = run_loiter(loiter_paths, out_dir=LOITERING_DIR, workers=active_workers)
 
     all_loiter_path = os.path.join(output_dir, "all_loitering_events.csv")
     merge_event_csvs(os.path.join(LOITERING_DIR, "loitering_events.csv"), all_loiter_path)
     metadata["loiter_seconds"] = round(time.time() - t4, 2)
 
-    # ------------------------------------------------------------------ #
-    # STAGE 5: Scoring
-    # ------------------------------------------------------------------ #
+    # Scoring
     print("\n=== STAGE 5: Scoring ===")
     sorted_vessels = run_scoring(vessels_paths, b_counts, out_dir=output_dir)
 
