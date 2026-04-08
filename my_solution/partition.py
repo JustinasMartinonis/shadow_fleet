@@ -1,7 +1,5 @@
 # partition.py
-# Single validation gate for raw AIS data.
 # Reads raw CSVs line-by-line, filters bad rows, and writes fixed-size shards to disk.
-# Nothing downstream needs to re-validate — shards are guaranteed clean.
 
 import csv
 import glob
@@ -12,36 +10,32 @@ from config import (
     LAT_MIN, LAT_MAX, LON_MIN, LON_MAX
 )
 
-MAX_ROWS = 500_000_000  # Safety kill-switch for runaway reads
+MAX_ROWS = 500_000_000  
 
 
 def _is_valid(row):
-    """
-    Single validation gate — called once per raw row.
-    Returns False on any bad data so it never reaches workers.
-    """
-    # --- MMSI ---
+    # MMSI
     mmsi = row.get("MMSI", "").strip()
     if not mmsi or mmsi in DIRTY_MMSI or len(mmsi) != 9 or not mmsi.isdigit() or mmsi[0] == "0":
         return False
     if mmsi.startswith(DIRTY_PREFIXES):  
         return False
 
-    # --- Timestamp ---
+    # Timestamp
     if not row.get("# Timestamp"):
         return False
 
-    # --- Vessel class and type ---
+    # Vessel class and type
     if row.get("Type of mobile", "").strip() != "Class A":
         return False
     if row.get("Ship type", "").strip().lower() in EXCLUDED_SHIP_TYPES:
         return False
 
-    # --- Coordinates ---
+    # Coordinates
     try:
         lat = float(row.get("Latitude", ""))
         lon = float(row.get("Longitude", ""))
-        if lat == 0.0 or lon == 0.0:                          # Null Island fix
+        if lat == 0.0 or lon == 0.0:                          
             return False
         if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
             return False
@@ -50,7 +44,7 @@ def _is_valid(row):
     except ValueError:
         return False
 
-    # --- Speed over ground ---
+    # Speed over ground
     sog_str = row.get("SOG", "").strip()
     if sog_str:
         try:
@@ -61,20 +55,14 @@ def _is_valid(row):
 
     return True
 
-
+# One ping per vessel per 2-min window
 def _dedup_key(mmsi, ts):
-    """2-minute deduplication bucket key — one ping per vessel per 2-min window."""
     yr = int(ts[6:10]); mo = int(ts[3:5]); dy = int(ts[0:2])
     hr = int(ts[11:13]); mn = int(ts[14:16])
     return (mmsi, yr, mo, dy, hr, mn // 2)
 
 
 def read_chunks(file_path):
-    """
-    Generator: reads the raw file row-by-row, validates, deduplicates,
-    and yields clean batches of CHUNK_SIZE rows.
-    Nothing is held in memory beyond the current batch + the dedup set.
-    """
     raw_rows     = 0
     rows_read    = 0
     seen_buckets = set()
@@ -123,8 +111,7 @@ def read_chunks(file_path):
 
 def partition_all(data_glob=DATA_ARCH_GLOB, out_dir=PARTITIONED_DIR):
     """
-    Consumes clean batches from read_chunks and writes them as numbered shard CSVs.
-    Returns list of shard file paths for the next pipeline stage.
+    Gets clean batches from read_chunks and writes them as numbered shard CSVs; returns list of shard file paths
     """
     os.makedirs(out_dir, exist_ok=True)
     input_files = sorted(glob.glob(data_glob))
