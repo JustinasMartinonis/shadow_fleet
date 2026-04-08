@@ -1,11 +1,7 @@
 numpy
-matplotlib
-csv
-time
-multiprocessing
-psutil
-threading
-math
-datetime
 scipy
-utils
+matplotlib
+pandas  # only used for inspection of results
+psutil
+memory-profiler
+folium
