@@ -12,6 +12,7 @@ The primary goal of this project is to identify vessels in the Baltic Sea that e
 - Source: Danish Maritime Authority AIS Data  
   http://aisdata.ais.dk/
 - 2 days of AIS data were used: 2025-12-10 and 2025-12-11
+- To run the code, a folder data_arch needs to be created locally where the Data files would be stored
 
 ## Anomalies 
 
